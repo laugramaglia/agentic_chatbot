@@ -8,5 +8,8 @@ dependencies = [
     "agno>=2.2.13",
     "groq>=0.34.1",
     "mcp>=1.21.1",
+    "openai>=2.8.0",
+    "pypdf>=6.3.0",
     "python-dotenv>=1.0.0",
+    "surrealdb>=1.0.6",
 ]
