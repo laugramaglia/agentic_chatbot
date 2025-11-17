@@ -6,85 +6,45 @@ from agno.knowledge.knowledge import Knowledge
 from agno.models.groq import Groq
 from agno.vectordb.surrealdb import SurrealDb
 from dotenv import load_dotenv
-from surrealdb import AsyncSurreal
+
+from database import SurrealDB
+from tools import create_order, get_product_info, check_order_status
 
 load_dotenv()
-
-
-async def setup_client():
-    """Initialize and configure SurrealDB client"""
-    db_url = os.getenv("SURREALDB_URL")
-    namespace = os.getenv("SURREALDB_NAMESPACE", "test")
-    database = os.getenv("SURREALDB_DATABASE", "test")
-    username = os.getenv("SURREALDB_USERNAME", "root")
-    password = os.getenv("SURREALDB_PASSWORD", "root")
-
-    if not db_url:
-        print("⚠️  SURREALDB_URL not configured!")
-        print()
-        print("To use SurrealDB Cloud:")
-        print("1. Go to https://app.surrealdb.com")
-        print("2. Find your instance endpoint")
-        print("3. Add it to your .env file as SURREALDB_URL")
-        print()
-        print("Or use local server: ws://localhost:8080/rpc")
-        raise ValueError("SURREALDB_URL environment variable is required")
-
-    # Create client
-    client = AsyncSurreal(db_url)
-
-    # For WebSocket connections, connect explicitly
-    if db_url.startswith("ws"):
-        await client.connect()
-
-    # Select namespace and database
-    await client.use(namespace, database)
-
-    # Authenticate with sign_in (Cloud) or signin (local)
-    try:
-        await client.sign_in(username=username, password=password)
-    except AttributeError:
-        # Fallback to signin for older SDK versions
-        await client.signin({"username": username, "password": password})
-
-    return client
 
 
 async def main():
     """Main async function"""
     # Setup SurrealDB client
-    client = await setup_client()
+    client = await SurrealDB.get_client()
 
     # Configure SurrealDB vector store
     vector_db = SurrealDb(
         client=client,
         collection="documents",
-        efc=150,  # HNSW construction time/accuracy trade-off
-        m=12,  # HNSW max connections per element
-        search_ef=40,  # HNSW search time/accuracy trade-off
     )
 
     # Create knowledge base
     knowledge_base = Knowledge(vector_db=vector_db)
 
-    # Add content from PDF (use async version)
-    await knowledge_base.add_content_async(
-        url="https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf"
-    )
+    # Add content from policies.txt
+    await knowledge_base.add_content_async(path="policies.txt")
 
     agent = Agent(
-        model=Groq(id=os.getenv("DEFAULT_MODEL", "llama-3.3-70b-versatile")),
-        description="You are a helpful assistant with access to a knowledge base. Use it to answer questions accurately.",
+        model=Groq(id=os.getenv("DEFAULT_MODEL", "llama3-8b-8192")),
+        description="You are a helpful e-commerce assistant. Use the available tools to answer questions about products, orders, and store policies.",
         knowledge=knowledge_base,
         search_knowledge=True,  # Enable RAG
-        tools=[],
+        tools=[get_product_info, check_order_status, create_order],
         markdown=True,  # Format responses in markdown
     )
 
-    agent.print_response(
-        "What are some popular Thai recipes?",
-        stream=True,
-    )
+    print("E-commerce Chatbot is running. Type 'exit' to quit.")
+    while True:
+        user_input = input("You: ")
+        if user_input.lower() == "exit":
+            break
+        agent.print_response(user_input, stream=True)
 
     # Close the connection
     await client.close()
